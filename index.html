@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=no">
+    <title>思成积分存折 🐾</title>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+    
+    <style>
+        :root { --blue: #1e88e5; --yellow: #fdd835; --bg: #f0f7ff; --white: #ffffff; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; padding-bottom: 80px; color: #333; }
+        .header { background: var(--blue); color: white; padding: 25px; text-align: center; font-size: 1.4rem; font-weight: bold; border-bottom: 5px solid var(--yellow); }
+        .container { padding: 15px; max-width: 500px; margin: auto; }
+        .card { background: var(--white); border-radius: 25px; padding: 20px; box-shadow: 0 8px 20px rgba(30,136,229,0.1); margin-bottom: 15px; border: 3px solid var(--yellow); position: relative; }
+        .balance-box { text-align: center; background: linear-gradient(135deg, #fff 0%, #fffde7 100%); }
+        .pts-val { font-size: 2.8rem; color: var(--blue); font-weight: 900; }
+        .money-val { font-size: 1rem; color: #2e7d32; background: #e8f5e9; padding: 8px 15px; border-radius: 20px; margin-top: 10px; display: inline-block; font-weight: bold; border: 1px solid #a5d6a7; }
+        
+        /* 提现页专用样式 */
+        .withdraw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+        .custom-withdraw-box { border-top: 2px dashed #eee; padding-top: 20px; margin-top: 10px; }
+        
+        .btn { background: var(--blue); border: none; color: white; padding: 14px; border-radius: 18px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 10px; box-shadow: 0 4px 0 #1565c0; transition: 0.1s; display: flex; align-items: center; justify-content: center; }
+        .btn:active { transform: translateY(2px); box-shadow: none; }
+        .btn-withdraw { background:#ffeb3b; color:#333; box-shadow: 0 4px 0 #fbc02d; }
+        
+        .fab { position: fixed; right: 20px; bottom: 100px; width: 65px; height: 65px; border-radius: 50%; background: var(--yellow); color: #333; font-size: 2.5rem; display: flex; align-items: center; justify-content: center; border: 4px solid var(--blue); z-index: 99; box-shadow: 0 5px 15px rgba(0,0,0,0.2); cursor: pointer; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .modal-content { background: white; padding: 25px; border-radius: 30px; width: 85%; max-width: 350px; }
+        .face-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 2000; flex-direction: column; align-items: center; justify-content: center; color: white; }
+        #video-feed { width: 260px; height: 260px; border-radius: 50%; object-fit: cover; border: 6px solid var(--yellow); margin-bottom: 20px; transform: scaleX(-1); }
+        .progress-bar { width: 220px; height: 10px; background: #333; border-radius: 10px; overflow: hidden; }
+        .progress-fill { width: 0%; height: 100%; background: var(--yellow); transition: width 0.1s; }
+        .nav-bar { position: fixed; bottom: 0; width: 100%; background: var(--white); display: flex; padding: 12px 0; border-top: 4px solid var(--blue); z-index: 100; }
+        .nav-item { text-align: center; color: #999; flex: 1; font-size: 0.8rem; cursor: pointer; }
+        .nav-item.active { color: var(--blue); font-weight: bold; }
+        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 2px solid #eee; border-radius: 12px; box-sizing: border-box; font-size: 1rem; }
+        .page { display: none; }
+        .page.active { display: block; }
+        .record-item { display: flex; justify-content: space-between; border-bottom: 1px dashed #eee; padding: 10px 0; align-items: center; }
+        .plus { color: #2e7d32; font-weight: bold; }
+        .minus { color: #d32f2f; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="header" id="ui-header">思成积分存折</div>
+
+<div class="container">
+    <div id="page1" class="page active">
+        <div class="card balance-box">
+            <div id="ui-bal-label">💰 积分余额</div>
+            <div class="pts-val" id="totalPts">0.00</div>
+            <div class="money-val" id="totalMoney">加载中...</div>
+        </div>
+        <div id="recordList"></div>
+    </div>
+
+    <div id="page2" class="page">
+        <div class="card" style="text-align: center;">
+            <h2 id="ui-with-title">🧧 提现中心</h2>
+            <p style="font-size:0.8rem; color:#888; margin-bottom: 15px;">汇率：10 积分 = 1 元现金</p>
+            
+            <div class="withdraw-grid">
+                <button class="btn btn-withdraw" onclick="confirmWithdraw(10)">🍦 1 元</button>
+                <button class="btn btn-withdraw" onclick="confirmWithdraw(100)">🍔 10 元</button>
+                <button class="btn btn-withdraw" onclick="confirmWithdraw(500)">🎁 50 元</button>
+                <button class="btn btn-withdraw" onclick="confirmWithdraw(1000)">🏎️ 100 元</button>
+            </div>
+
+            <div class="custom-withdraw-box">
+                <p style="font-size:0.9rem; font-weight:bold; margin-bottom:5px;" id="ui-custom-label">输入自定义金额 (元)</p>
+                <input type="number" id="customCash" placeholder="0.00" step="0.1">
+                <button class="btn" style="background:var(--blue);" onclick="handleCustomWithdraw()">🚀 自定义金额提现</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="page3" class="page">
+        <div class="card" style="text-align: center;">
+            <div style="position: relative; width: 100px; height: 100px; margin: auto;">
+                <img id="avatarImg" src="https://via.placeholder.com/150" style="width:100%; height:100%; border-radius:50%; object-fit:cover; border:3px solid var(--yellow);">
+                <div style="position: absolute; bottom: 0; right: 0; background: white; border-radius: 50%; padding: 4px; border: 1px solid #ddd; cursor: pointer;" onclick="document.getElementById('fileInput').click()">📸</div>
+            </div>
+            <input type="file" id="fileInput" hidden accept="image/*" onchange="handleFileSelect(this)">
+            <h2 id="nameShow">思成</h2>
+            <select id="langSelect" onchange="changeLang(this.value)">
+                <option value="zh">简体中文</option>
+                <option value="tw">繁體中文</option>
+                <option value="en">English</option>
+            </select>
+            <input type="text" id="newName" placeholder="修改名字...">
+            <button class="btn" id="ui-btn-rename" onclick="rename()">✅ 确认修改</button>
+            <button class="btn" style="background:#ff5252; box-shadow: 0 4px 0 #d32f2f;" id="ui-btn-reset" onclick="reset()">🗑️ 重置数据</button>
+        </div>
+    </div>
+</div>
+
+<button class="fab" id="fabBtn" onclick="openAddModal()">+</button>
+
+<div id="confirmModal" class="modal">
+    <div class="modal-content" style="text-align:center;">
+        <h2 id="ui-conf-title">确认支付</h2>
+        <div id="confirmDetail" style="font-size: 1.4rem; margin: 15px 0; color: var(--blue); font-weight: bold;"></div>
+        <p style="font-size:0.8rem; color:#888;">即将开始面部生物识别</p>
+        <div style="display:flex; gap:10px;">
+            <button class="btn" style="background:#ccc; box-shadow: 0 4px 0 #999;" onclick="document.getElementById('confirmModal').style.display='none'">取消</button>
+            <button class="btn" id="ui-btn-startscan" onclick="proceedToFaceScan()">确认并识别</button>
+        </div>
+    </div>
+</div>
+
+<div id="faceModal" class="face-modal">
+    <h2 id="ui-scan-title">身份核验</h2>
+    <video id="video-feed" autoplay playsinline></video>
+    <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+    <p id="face-status">正在扫描...</p>
+</div>
+
+<div id="addModal" class="modal">
+    <div class="modal-content">
+        <h3 id="ui-add-title">📝 添加记录</h3>
+        <select id="recType"><option value="plus">存入 (+)</option><option value="minus">支出 (-)</option></select>
+        <input type="number" id="recAmt" placeholder="积分数量">
+        <input type="text" id="recReason" placeholder="事由备注">
+        <div style="display:flex; gap:10px;"><button class="btn" style="background:#ccc;" onclick="closeAddModal()">取消</button><button class="btn" onclick="doRecord()">确认</button></div>
+    </div>
+</div>
+
+<div id="cropperModal" class="modal">
+    <div class="modal-content">
+        <h3 id="ui-crop-title">裁剪头像</h3>
+        <div class="cropper-container-box"><img id="imageToCrop"></div>
+        <div style="display:flex; gap:10px;"><button class="btn" style="background:#ccc;" onclick="closeCropper()">取消</button><button class="btn" onclick="saveCroppedAvatar()">保存</button></div>
+    </div>
+</div>
+
+<div class="nav-bar">
+    <div class="nav-item active" onclick="showP(1, this)" id="nav-1">📖 账本</div>
+    <div class="nav-item" onclick="showP(2, this)" id="nav-2">🧧 提现</div>
+    <div class="nav-item" onclick="showP(3, this)" id="nav-3">😎 我</div>
+</div>
+
+<script>
+// --- 国际化数据 ---
+const i18n = {
+    zh: { header: "思成积分存折", bal_label: "💰 积分余额", custom_label: "输入自定义金额 (元)", with_title: "🧧 提现中心", conf_title: "确认支付", start_scan: "确认并识别", scan_title: "身份核验", crop_title: "裁剪头像", add_title: "📝 添加记录", nav1: "📖 账本", nav2: "🧧 提现", nav3: "😎 我", success: "🤩 识别成功", fail: "🧐 别挡着脸", rename: "确认修改", reset: "重置数据" },
+    tw: { header: "思成積分存折", bal_label: "💰 積分餘額", custom_label: "輸入自定義金額 (元)", with_title: "🧧 提現中心", conf_title: "確認支付", start_scan: "確認並識別", scan_title: "身份核驗", crop_title: "裁剪頭像", add_title: "📝 添加記錄", nav1: "📖 帳本", nav2: "🧧 提現", nav3: "😎 我", success: "🤩 識別成功", fail: "🧐 別擋著臉", rename: "確認修改", reset: "重置數據" },
+    en: { header: "SiCheng Wallet", bal_label: "💰 Points Balance", custom_label: "Enter Custom Cash ($)", with_title: "🧧 Redeem", conf_title: "Confirm", start_scan: "Identify", scan_title: "Verification", crop_title: "Crop Avatar", add_title: "📝 New Entry", nav1: "📖 Book", nav2: "🧧 Redeem", nav3: "😎 Me", success: "🤩 Verified!", fail: "🧐 Blocked!", rename: "Update", reset: "Reset" }
+};
+
+// --- 初始化变量 ---
+let db = JSON.parse(localStorage.getItem('sc_final_v15')) || {
+    balance: 0.00, records: [], user: { name: '思成', avatar: '', lang: 'zh' }
+};
+let cropper = null;
+let currentPendingPts = 0;
+let stream = null;
+let faceCheckTimer = null;
+const MODEL_URL = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
+
+async function init() {
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+    await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+    render();
+}
+
+function save() { localStorage.setItem('sc_final_v15', JSON.stringify(db)); render(); }
+
+function render() {
+    const lang = i18n[db.user.lang];
+    document.getElementById('ui-header').innerText = lang.header;
+    document.getElementById('ui-bal-label').innerText = lang.bal_label;
+    document.getElementById('ui-with-title').innerText = lang.with_title;
+    document.getElementById('ui-conf-title').innerText = lang.conf_title;
+    document.getElementById('ui-btn-startscan').innerText = lang.start_scan;
+    document.getElementById('ui-scan-title').innerText = lang.scan_title;
+    document.getElementById('ui-crop-title').innerText = lang.crop_title;
+    document.getElementById('ui-add-title').innerText = lang.add_title;
+    document.getElementById('ui-custom-label').innerText = lang.custom_label;
+    document.getElementById('ui-btn-rename').innerText = lang.rename;
+    document.getElementById('ui-btn-reset').innerText = lang.reset;
+    document.getElementById('nav-1').innerText = lang.nav1;
+    document.getElementById('nav-2').innerText = lang.nav2;
+    document.getElementById('nav-3').innerText = lang.nav3;
+    
+    document.getElementById('totalPts').innerText = db.balance.toFixed(0);
+    const rmbValue = db.balance / 10;
+    document.getElementById('totalMoney').innerText = `💴 等值 RMB：${rmbValue.toFixed(2)} 元`;
+    
+    document.getElementById('nameShow').innerText = db.user.name;
+    document.getElementById('langSelect').value = db.user.lang;
+    if(db.user.avatar) document.getElementById('avatarImg').src = db.user.avatar;
+    
+    const list = document.getElementById('recordList');
+    list.innerHTML = '';
+    db.records.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'card record-item';
+        div.innerHTML = `<div><b>${r.reason}</b><br><small>${r.time}</small></div><div class="${r.type}">${r.type==='plus'?'+':'-'}${r.amount.toFixed(0)}</div>`;
+        list.appendChild(div);
+    });
+}
+
+// --- 提现逻辑 ---
+function handleCustomWithdraw() {
+    const cash = parseFloat(document.getElementById('customCash').value);
+    if(isNaN(cash) || cash <= 0) return alert("请输入正确的金额哦");
+    const ptsRequired = cash * 10; // 汇率：1元 = 10积分
+    confirmWithdraw(ptsRequired);
+}
+
+function confirmWithdraw(pts) {
+    if(db.balance < pts) return alert(`积分不足！提现需要 ${pts.toFixed(0)} 积分`);
+    currentPendingPts = pts;
+    document.getElementById('confirmDetail').innerText = `支付 ${pts.toFixed(0)} 积分 (换取 ${(pts/10).toFixed(2)} 元)`;
+    document.getElementById('confirmModal').style.display = 'flex';
+}
+
+async function proceedToFaceScan() {
+    document.getElementById('confirmModal').style.display = 'none';
+    const video = document.getElementById('video-feed');
+    const fill = document.getElementById('progress-fill');
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        document.getElementById('faceModal').style.display = 'flex';
+        let prog = 0;
+        faceCheckTimer = setInterval(async () => {
+            const detect = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks();
+            if(detect) { 
+                prog += 4; 
+                document.getElementById('face-status').innerText = i18n[db.user.lang].success;
+            } else { 
+                if(prog > 0) prog -= 2; 
+                document.getElementById('face-status').innerText = i18n[db.user.lang].fail;
+            }
+            fill.style.width = prog + '%';
+            if(prog >= 100) { clearInterval(faceCheckTimer); finishWithdraw(); }
+        }, 100);
+    } catch(e) { alert("摄像头启动失败，请检查权限"); }
+}
+
+function finishWithdraw() {
+    db.balance -= currentPendingPts;
+    const now = new Date();
+    db.records.unshift({ 
+        type: 'minus', 
+        amount: currentPendingPts, 
+        reason: `兑换现金 ${(currentPendingPts/10).toFixed(2)}元`, 
+        time: `${now.getMonth()+1}/${now.getDate()}` 
+    });
+    if(stream) stream.getTracks().forEach(t => t.stop());
+    document.getElementById('faceModal').style.display = 'none';
+    document.getElementById('customCash').value = ""; // 清空输入框
+    save(); alert("🎊 提现成功！现金已到账");
+}
+
+// --- 基础辅助功能 ---
+function showP(n, el) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    document.getElementById('page'+n).classList.add('active'); el.classList.add('active');
+    document.getElementById('fabBtn').style.display = (n === 1) ? 'flex' : 'none';
+}
+
+function openAddModal() { document.getElementById('addModal').style.display = 'flex'; }
+function closeAddModal() { document.getElementById('addModal').style.display = 'none'; }
+function doRecord() {
+    const type = document.getElementById('recType').value;
+    const amt = parseInt(document.getElementById('recAmt').value);
+    const reas = document.getElementById('recReason').value || '日常记录';
+    if(isNaN(amt) || amt <= 0) return;
+    if(type === 'minus' && db.balance < amt) return alert('余额不足');
+    db.balance = (type === 'plus') ? db.balance + amt : db.balance - amt;
+    const now = new Date();
+    db.records.unshift({ type, amount: amt, reason: reas, time: `${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${now.getMinutes().toString().padStart(2,'0')}` });
+    closeAddModal(); save();
+}
+
+function handleFileSelect(input) {
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = document.getElementById('imageToCrop');
+            img.src = e.target.result;
+            document.getElementById('cropperModal').style.display = 'flex';
+            if(cropper) cropper.destroy();
+            cropper = new Cropper(img, { aspectRatio: 1, viewMode: 1 });
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+function saveCroppedAvatar() {
+    db.user.avatar = cropper.getCroppedCanvas({width:200,height:200}).toDataURL();
+    save(); document.getElementById('cropperModal').style.display = 'none';
+}
+function closeCropper() { document.getElementById('cropperModal').style.display = 'none'; }
+function changeLang(v) { db.user.lang = v; save(); }
+function rename() { const n = document.getElementById('newName').value; if(n) { db.user.name = n; save(); } }
+function reset() { if(confirm('确定重置所有数据吗？')) { localStorage.clear(); location.reload(); } }
+
+init();
+</script>
+</body>
+</html>
