@@ -34,9 +34,12 @@
 <div class="modal" id="modal-crop">    <div class="modal-inner" style="max-width: 540px;">        <h3 style="margin-top:0; font-weight:950;">裁剪新头像</h3>        <div style="width:100%; height:340px; background:#F1F5F9; border-radius:30px; overflow:hidden; margin:25px 0; border:4px dashed #CBD5E0;">            <img id="target-img" style="max-width:100%;">        </div>        <button class="btn btn-p" onclick="doSaveAvatar()">完成并保存头像</button>        <button class="btn" style="width:100%; margin-top:15px; background:none; color:var(--t-sub); border:none; height:50px; font-weight:800;" onclick="hideModals()">放弃修改</button>    </div></div>
 <div class="scan-layer" id="scanner">    <div style="position:relative">        <video id="video" autoplay playsinline></video>        <div class="scan-overlay">            <div class="scan-line"></div>        </div>    </div>    <h2 style="margin-top:50px; font-size:2.2rem; font-weight:950; letter-spacing:2px;">生物密钥匹配中</h2>    <p id="scan-txt" style="font-size:1.2rem; color:var(--a-color); font-weight:900;">请正对高清摄像头，保持静止</p>    <div style="width:300px; height:16px; background:rgba(255,255,255,0.1); border-radius:15px; margin-top:40px; overflow:hidden; border:2px solid rgba(255,255,255,0.1)">        <div id="scan-prog" style="width:0; height:100%; background:var(--a-color); transition: width 0.2s linear; box-shadow: 0 0 25px var(--a-color);"></div>    </div></div>
 <script>let core = JSON.parse(localStorage.getItem('SICHE_PRO_V4_2026')) || {    balance: 0.0, records: [], tasks: [], user: { name: '思成', avatar: '', lang: 'zh' }, lastTick: Date.now()};let activeTab = 'book';let activeSort = 0;let starRank = 5;let cropper = null;let payPts = 0;
-// 【补丁新增】提现冷却与状态锁
+
+// 【核心补丁】新增全局控制变量
 let lastRedeemTime = 0;
-let isScanning = false;
+let isScanning = false; 
+let scanTimer = null; // 显式声明定时器句柄
+let currentScanId = 0; // 任务ID校验
 
 function start() {    render(); doGrowth();    setInterval(doGrowth, 60000);    faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights');    document.getElementById('time-tag').innerText = "2026.02.04 | 资产安全加密运行中";}
 function doGrowth() {    const now = Date.now();    const dayGap = (now - core.lastTick) / (1000 * 60 * 60 * 24);    if (core.balance >= 10 && dayGap > 0.0001) {        const bonus = core.balance * 0.000025 * dayGap;         if (bonus >= 0.01) {            core.balance += bonus;            core.records.unshift({ id: Date.now(), type: 'in', amt: bonus, msg: '💎 资产自动增值收益', time: "刚才" });            core.lastTick = now;            save();        }    } else if(core.balance < 10) core.lastTick = now;}
@@ -53,12 +56,10 @@ function killTask(i) { if(confirm("确定要永久移除这个挑战项吗？"))
 function finishTask(i) {    const t = core.tasks[i];    core.balance += t.pts;    core.records.unshift({ id: Date.now(), type: 'in', amt: t.pts, msg: '🎯 成就达成：'+t.name, time: "刚才" });    save(); alert("挑战成功！奖励积分已注入账户。");}
 function handleCustomRedeem() {    const m = parseFloat(document.getElementById('c-money').value);    if(m <= 100 || isNaN(m)) return alert("自定义兑换额度需超过 100 元。");    redeemGate(m * 10);}
 
-// 【补丁代码】提现逻辑补丁
+// 【补丁代码】强制防止扣2次钱逻辑
 function redeemGate(pts) {
-    // 补丁 1：正在核验中禁止再次触发（防扣2次钱）
     if (isScanning) return; 
 
-    // 补丁 2：30秒提现冷却逻辑
     const now = Date.now();
     const wait = Math.ceil((30000 - (now - lastRedeemTime)) / 1000);
     if (now - lastRedeemTime < 30000) {
@@ -67,23 +68,67 @@ function redeemGate(pts) {
     }
 
     if(core.balance < pts) return alert("当前积分资产不足，请继续努力完成挑战。");
+    
     payPts = pts;
     if(confirm(`即将进入生物识别核验流程，确认兑换 ${pts} 积分？`)) {
-        isScanning = true; // 锁定状态
-        startScan();
+        isScanning = true; 
+        currentScanId = Date.now(); // 生成唯一任务ID
+        startScan(currentScanId);
     }
 }
 
-async function startScan() {    const s = document.getElementById('scanner');    const v = document.getElementById('video');    const b = document.getElementById('scan-prog');    try {        const stream = await navigator.mediaDevices.getUserMedia({ video: true });        v.srcObject = stream;        s.style.display = 'flex';        let prog = 0;        const h = setInterval(async () => {            const d = await faceapi.detectSingleFace(v, new faceapi.TinyFaceDetectorOptions());            if(d) {                prog += 4;                document.getElementById('scan-txt').innerText = "✅ 正在校验面部生物密钥...";                document.getElementById('scan-txt').style.color = "var(--s-color)";            } else {                document.getElementById('scan-txt').innerText = "⚠️ 检出中断，请对准识别区";                document.getElementById('scan-txt').style.color = "var(--d-color)";            }            b.style.width = prog + '%';
-            // 【补丁 3】成功核验后的处理
-            if(prog >= 100) {                clearInterval(h);                core.balance -= payPts;                core.records.unshift({ id: Date.now(), type: 'out', amt: payPts, msg: '🧧 资产提取：兑现奖励', time: "刚刚" });                
-                lastRedeemTime = Date.now(); // 记录成功时间
-                isScanning = false;          // 解除锁定
+async function startScan(taskId) {    
+    const s = document.getElementById('scanner');    
+    const v = document.getElementById('video');    
+    const b = document.getElementById('scan-prog');
+    
+    // 强制清除之前的残留定时器
+    if(scanTimer) clearInterval(scanTimer);
+
+    try {        
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });        
+        v.srcObject = stream;        
+        s.style.display = 'flex';        
+        let prog = 0;        
+        
+        scanTimer = setInterval(async () => {            
+            const d = await faceapi.detectSingleFace(v, new faceapi.TinyFaceDetectorOptions());            
+            if(d) {                
+                prog += 4;                
+                document.getElementById('scan-txt').innerText = "✅ 正在校验面部生物密钥...";                
+                document.getElementById('scan-txt').style.color = "var(--s-color)";            
+            } else {                
+                document.getElementById('scan-txt').innerText = "⚠️ 检出中断，请对准识别区";                
+                document.getElementById('scan-txt').style.color = "var(--d-color)";            
+            }            
+            b.style.width = prog + '%';
+
+            // 成功逻辑
+            if(prog >= 100) {                
+                clearInterval(scanTimer); // 1. 立即停止循环
+                scanTimer = null;
+
+                // 2. 二次身份验证：任务ID不匹配或已被释放则直接拦截
+                if (taskId !== currentScanId || !isScanning) return; 
+
+                // 3. 执行扣款并锁定全局
+                isScanning = false;          
+                core.balance -= payPts;                
+                core.records.unshift({ id: Date.now(), type: 'out', amt: payPts, msg: '🧧 资产提取：兑现奖励', time: "刚刚" });                
+                lastRedeemTime = Date.now(); 
                 
-                save();                stream.getTracks().forEach(t => t.stop());                s.style.display = 'none';                alert("身份核验通过！兑换成功。");            }        }, 70);    } catch(e) { 
-        isScanning = false; // 失败也要解除锁定，否则无法再次点击
+                save();                
+                stream.getTracks().forEach(t => t.stop());                
+                s.style.display = 'none';                
+                alert("身份核验通过！兑换成功。");            
+            }        }, 70);    
+    } catch(e) { 
+        isScanning = false; 
+        currentScanId = 0;
+        if(scanTimer) clearInterval(scanTimer);
         alert("识别授权失败，请检查摄像头设置。"); 
-    }}
+    }
+}
 
 function goCrop(f) {    if (f.files && f.files[0]) {        const r = new FileReader();        r.onload = (e) => {            document.getElementById('target-img').src = e.target.result;            document.getElementById('modal-crop').style.display = 'flex';            if(cropper) cropper.destroy();            cropper = new Cropper(document.getElementById('target-img'), { aspectRatio: 1, viewMode: 1 });        };        r.readAsDataURL(f.files[0]);    }}
 function doSaveAvatar() {    core.user.avatar = cropper.getCroppedCanvas({ width: 300, height: 300 }).toDataURL();    save(); hideModals();}
